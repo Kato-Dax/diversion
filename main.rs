@@ -155,6 +155,7 @@ unsafe fn run_event_loop(
             value: 0,
         };
         let nfds = devices.iter().copied().max().unwrap_or(0) + 1;
+        let starting_time = std::time::Instant::now();
         loop {
             if should_exit.get() {
                 break Ok(false);
@@ -186,7 +187,7 @@ unsafe fn run_event_loop(
             }
             let mut timeout: timeval = timeval {
                 tv_sec: 0,
-                tv_usec: 200_000, // 100 ms
+                tv_usec: 200_000, // 200 ms
             };
             let code = libc::select(
                 nfds,
@@ -198,6 +199,7 @@ unsafe fn run_event_loop(
             if code == 0 {
                 continue;
             }
+            let elapsed = starting_time.elapsed().as_secs_f64();
             for (device, fd) in devices.iter().copied().enumerate() {
                 if !FD_ISSET(fd, &set as *const fd_set) {
                     continue;
@@ -213,8 +215,7 @@ unsafe fn run_event_loop(
                 if code < 24 {
                     continue;
                 }
-                event_callback
-                    .call::<()>((device, ev.type_, ev.code, ev.value))?;
+                event_callback.call::<()>((device, ev.type_, ev.code, ev.value, elapsed))?;
             }
         }
     }
