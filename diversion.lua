@@ -3,6 +3,8 @@ local process_callbacks = {}
 
 diversion = {}
 
+diversion.devices = _G.__devices
+
 diversion.spawn = function(cmd, args, stdout, stderr, exit)
     local ident = current_function
     current_function = current_function + 1

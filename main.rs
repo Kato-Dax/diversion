@@ -84,10 +84,10 @@ unsafe fn run(
     script: impl AsRef<std::path::Path>,
 ) -> Result<(), Error> {
     unsafe {
-        let devices: Vec<i32> = open_devices(devices)?;
+        let device_fds: Vec<i32> = open_devices(devices)?;
         let fd = create_uinput(device_name)?;
         loop {
-            match run_event_loop(&devices, &script, fd) {
+            match run_event_loop(devices, &device_fds, &script, fd) {
                 Ok(true) => continue,
                 Ok(false) => {
                     destroy_uinput(fd)?;
@@ -103,6 +103,7 @@ unsafe fn run(
 }
 
 unsafe fn run_event_loop(
+    device_names: &[PathBuf],
     devices: &[i32],
     script: impl AsRef<std::path::Path>,
     fd: i32,
@@ -132,6 +133,15 @@ unsafe fn run_event_loop(
                     Ok(())
                 }
             })?,
+        )?;
+        lua.globals().set(
+            "__devices",
+            lua.create_table_from(
+                device_names
+                    .iter()
+                    .map(|device_path| device_path.to_str().expect("device path is ascii"))
+                    .enumerate(),
+            )?,
         )?;
         lua.load(include_str!("codes.lua")).exec()?;
         lua.load(include_str!("promise.lua")).exec()?;
