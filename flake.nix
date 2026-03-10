@@ -24,7 +24,8 @@
                 inherit nativeBuildInputs buildInputs;
             };
             packages.x86_64-linux.default = pkgs.rustPlatform.buildRustPackage {
-                inherit nativeBuildInputs buildInputs;
+                inherit buildInputs;
+                nativeBuildInputs = with pkgs; [ pkg-config ];
                 pname = "diversion";
                 version = "1.0.0";
                 src = ./.;

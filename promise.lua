@@ -11,7 +11,7 @@ function Promise:new(f)
             value:next(resolve)
         else
             promise.done = true
-            promise.value = value;
+            promise.value = value
             for k, f in pairs(promise.listeners) do
                 if type(f) == "function" then
                     f(value)
@@ -32,14 +32,14 @@ end
 
 function Promise:next(f)
     if self.done then
-        return Promise:new(function(resolve) 
-            resolve(f(self.value)) 
+        return Promise:new(function(resolve)
+            resolve(f(self.value))
         end)
     else
         return Promise:new(function(resolve)
             table.insert(self.listeners, function(value)
                 resolve(f(value))
-            end) 
+            end)
         end)
     end
 end

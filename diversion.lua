@@ -1,4 +1,4 @@
-local current_function = 0
+local current_function = 1
 local process_callbacks = {}
 
 diversion = {}
