@@ -1,4 +1,4 @@
-use mlua::Lua;
+use mlua::{Lua, ObjectLike};
 use nix::{
     ioctl_none_bad, ioctl_write_int_bad, ioctl_write_ptr_bad,
     libc::{
@@ -330,10 +330,16 @@ enum ProcessMessage {
     Exit(i32),
 }
 
+enum ProcessInput {
+    Stdin(Vec<u8>),
+    StdinEof,
+    Terminate,
+}
+
 fn create_lua(
     tx: Sender<(ProcessMessage, i32)>,
     should_exit: Rc<Cell<bool>>,
-    children_stdins: Arc<Mutex<HashMap<i32, Sender<Vec<u8>>>>>,
+    children_stdins: Arc<Mutex<HashMap<i32, Sender<ProcessInput>>>>,
 ) -> Result<Lua, Error> {
     let lua = mlua::Lua::new();
     let execute = lua
@@ -367,14 +373,28 @@ fn create_lua(
                             }
                         };
                         let has_exited = Arc::new(AtomicBool::new(false));
-                        let mut stdin = child.stdin.take().unwrap();
+                        let child_id = child.id();
+                        let mut stdin = child.stdin.take();
                         let mut stdout = child.stdout.take().unwrap();
                         let mut stderr = child.stderr.take().unwrap();
                         std::thread::spawn(move || {
                             for data in stdin_rx {
-                                match stdin.write_all(&data).and_then(|_| stdin.flush()) {
-                                    Ok(()) => {}
-                                    Err(_) => break,
+                                match data {
+                                    ProcessInput::Stdin(data) => {
+                                        let Some(stdin) = &mut stdin else {
+                                            return;
+                                        };
+                                        match stdin.write_all(&data).and_then(|_| stdin.flush()) {
+                                            Ok(()) => {}
+                                            Err(_) => break,
+                                        }
+                                    },
+                                    ProcessInput::StdinEof => {
+                                        stdin.take();
+                                    },
+                                    ProcessInput::Terminate => {
+                                        unsafe { libc::kill(child_id as i32, libc::SIGTERM); }
+                                    },
                                 }
                             }
                         });
@@ -426,6 +446,7 @@ fn create_lua(
                                 }
                             }
                         });
+
                         let exit_code = child.wait().unwrap().code().unwrap();
                         has_exited.store(true, Ordering::Relaxed);
                         tx.send((ProcessMessage::Exit(exit_code), ident)).ok();
@@ -436,12 +457,30 @@ fn create_lua(
             }
         })
         .unwrap();
+
+    let eof_symbol = lua.create_table()?.to_value();
+    lua.globals().set("__eof", &eof_symbol)?;
+    let terminate_symbol = lua.create_table()?.to_value();
+    lua.globals().set("__terminate", &terminate_symbol)?;
+
     let write_stdin = lua
-        .create_function(move |_, (ident, value): (i32, mlua::String)| {
-            Ok(match children_stdins.lock().unwrap().get(&ident) {
-                Some(sender) => sender.send(value.as_bytes().to_vec()).is_ok(),
-                None => false,
-            })
+        .create_function(move |_, (ident, value): (i32, mlua::Value)| {
+            match children_stdins.lock().unwrap().get(&ident) {
+                Some(sender) => {
+                    if value.equals(&eof_symbol)? {
+                        return Ok(sender.send(ProcessInput::StdinEof).is_ok())
+                    }
+                    if value.equals(&terminate_symbol)? {
+                        return Ok(sender.send(ProcessInput::Terminate).is_ok())
+                    }
+
+                    let Some(value) = value.as_string() else {
+                        return Ok(false);
+                    };
+                    return Ok(sender.send(ProcessInput::Stdin(value.as_bytes().to_vec())).is_ok());
+                }
+                None => Ok(false),
+            }
         })
         .unwrap();
     lua.globals().set("__async_execute", execute)?;

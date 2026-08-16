@@ -19,6 +19,8 @@ diversion.spawn = function(cmd, args, stdout, stderr, exit)
         return _G.__process_write_stdin(ident, data)
     end
 end
+diversion.eof = _G.__eof
+diversion.terminate = _G.__terminate
 
 diversion.execute = function(cmd, args)
     return Promise:new(function(resolve)
